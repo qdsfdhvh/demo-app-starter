@@ -223,11 +223,13 @@ interface TaskInterface : Runnable {
   fun isNeedWait(): Boolean = false
 
   fun runOnExecutor(): Executor
-
-  val ifNeedWait: Boolean get() = !isRunOnMainThread() && isNeedWait()
-
-  val dependsSize: Int get() = getDependsTaskList().size
 }
+
+private inline val TaskInterface.ifNeedWait: Boolean
+  get() = !isRunOnMainThread() && isNeedWait()
+
+private inline val TaskInterface.dependsSize: Int
+  get() = getDependsTaskList().size
 
 private class AppStartTask(task: TaskInterface) : TaskInterface by task {
 
