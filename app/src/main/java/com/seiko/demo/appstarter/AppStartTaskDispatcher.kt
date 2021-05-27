@@ -41,7 +41,7 @@ class AppStartTaskDispatcher private constructor(
 
     fun addAppStartTask(task: TaskInterface) = apply {
       startTaskList.add(AppStartTask(task))
-      if (task.ifNeedWait()) {
+      if (task.ifNeedWait) {
         needWaitCount++
       }
     }
@@ -58,8 +58,8 @@ class AppStartTaskDispatcher private constructor(
     )
   }
 
-  private val taskHashMap = HashMap<TaskKey, AppStartTask>()
-  private val taskChildHashMap = HashMap<TaskKey, MutableList<TaskKey>>()
+  private val taskMap = HashMap<TaskKey, AppStartTask>()
+  private val taskChildListMap = HashMap<TaskKey, ArrayList<TaskKey>>()
 
   private val countDownLatch = CountDownLatch(needWaitCount)
 
@@ -80,18 +80,20 @@ class AppStartTaskDispatcher private constructor(
     log("Finish all await Tasks, costTime: ${System.currentTimeMillis() - startTime}ms")
   }
 
-  // 分别处理主线程和子线程的任务
+  /**
+   * 启动所有Task任务
+   */
   private fun dispatchAppStartTask(sortTaskList: List<AppStartTask>) {
     val mainThreadTasks = ArrayList<AppStartTask>(sortTaskList.size)
     sortTaskList.forEach { task ->
       if (task.isRunOnMainThread()) {
         mainThreadTasks.add(task)
       } else {
-        // 发送子线程的任务
+        // 启动子线程的任务
         task.runOnExecutor().execute(task.toProxy())
       }
     }
-    // 发送主线程的任务
+    // 启动主线程的任务
     mainThreadTasks.forEach { task ->
       task.toProxy().run()
     }
@@ -99,47 +101,52 @@ class AppStartTaskDispatcher private constructor(
 
   /**
    * 拓扑排序
-   * taskIntegerHashMap每个Task的入度
-   * taskHashMap每个Task
-   * taskChildHashMap每个Task的孩子
-   * deque 入度为0的Task
+   * 重新排列Task任务
    */
   private fun getSortResult(): List<AppStartTask> {
     val deque = ArrayDeque<TaskKey>()
 
-    val taskDepthHashMap = HashMap<TaskKey, Int>()
+    // 先循环每个Task，确定深度、放入Map、创建childList
+    val taskDepthMap = HashMap<TaskKey, Int>()
     for (task in startTaskList) {
-      if (!taskDepthHashMap.containsKey(task.taskKey)) {
-        taskHashMap[task.taskKey] = task
-        taskDepthHashMap[task.taskKey] = task.getDependsTaskList().size
-        taskChildHashMap[task.taskKey] = ArrayList()
-        // 添加深度为0的Task
-        if (taskDepthHashMap[task.taskKey] == 0) {
-          deque.addLast(task.taskKey)
-        }
-      } else {
+      if (taskDepthMap.containsKey(task.taskKey)) {
         throw RuntimeException("任务重复了: " + task.taskKey)
       }
+
+      val dependsSize = task.dependsSize
+      if (dependsSize == 0) {
+        // 深度为0的Task注入当如队列
+        deque.addLast(task.taskKey)
+      }
+
+      taskDepthMap[task.taskKey] = dependsSize
+      taskMap[task.taskKey] = task
+      taskChildListMap[task.taskKey] = ArrayList()
     }
 
-    // 给Task添加把子Task的key
-    for (task in startTaskList) {
-      if (task.getDependsTaskList().isNotEmpty()) {
-        task.getDependsTaskList().forEach { dependsKClass ->
-          taskChildHashMap[dependsKClass]?.add(task.taskKey)
-        }
+    // 再次循环每个Task，并放入其需要依赖的Task的childList中
+    for (childTask in startTaskList) {
+      if (childTask.getDependsTaskList().isEmpty()) continue
+      childTask.getDependsTaskList().forEach { taskKey ->
+        taskChildListMap[taskKey]!!.add(childTask.taskKey)
       }
     }
 
-    // 按深度逐个添加进排序后的TaskList
+    // 根据深度，逐个添加进sortTaskList
     val sortTaskList = ArrayList<AppStartTask>(startTaskList.size)
     while (!deque.isEmpty()) {
-      val dependsKClass = deque.removeFirst()
-      sortTaskList.add(taskHashMap[dependsKClass]!!)
-      for (classChild in taskChildHashMap[dependsKClass]!!) {
-        taskDepthHashMap[classChild] = taskDepthHashMap[classChild]!! - 1
-        if (taskDepthHashMap[classChild]!! == 0) {
-          deque.addLast(classChild)
+      val taskKey = deque.removeFirst()
+      sortTaskList.add(taskMap[taskKey]!!)
+
+      val childTaskList = taskChildListMap[taskKey]
+      if (childTaskList.isNullOrEmpty()) continue
+
+      // 添加完成后对其每个子Task的深度-1
+      for (childTaskKey in childTaskList) {
+        val depth = taskDepthMap[childTaskKey]!! - 1
+        taskDepthMap[childTaskKey] = depth
+        if (depth == 0) {
+          deque.addLast(childTaskKey)
         }
       }
     }
@@ -155,11 +162,11 @@ class AppStartTaskDispatcher private constructor(
 
   private fun finishAppStartTask(task: AppStartTask) {
     // notify children
-    taskChildHashMap[task.taskKey]?.forEach { childTask ->
-      taskHashMap[childTask]?.notifyNow()
+    taskChildListMap[task.taskKey]!!.forEach { childTaskKey ->
+      taskMap[childTaskKey]!!.notifyNow()
     }
     // needWait -1
-    if (task.ifNeedWait()) {
+    if (task.ifNeedWait) {
       countDownLatch.countDown()
     }
   }
@@ -217,18 +224,16 @@ interface TaskInterface : Runnable {
 
   fun runOnExecutor(): Executor
 
-  fun ifNeedWait(): Boolean {
-    return !isRunOnMainThread() && isNeedWait()
-  }
+  val ifNeedWait: Boolean get() = !isRunOnMainThread() && isNeedWait()
+
+  val dependsSize: Int get() = getDependsTaskList().size
 }
 
 private class AppStartTask(task: TaskInterface) : TaskInterface by task {
 
   val taskKey: TaskKey = task::class
 
-  private val depends by lazy {
-    CountDownLatch(task.getDependsTaskList().size)
-  }
+  private val depends by lazy { CountDownLatch(task.dependsSize) }
 
   fun waitToNotify() {
     try {
