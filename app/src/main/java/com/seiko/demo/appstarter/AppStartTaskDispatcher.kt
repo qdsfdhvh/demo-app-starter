@@ -151,7 +151,7 @@ class AppStartTaskDispatcher private constructor(
       }
     }
 
-    // 排序后的TaskList数量必须
+    // 排序后的TaskList数量必须相同
     if (sortTaskList.size != startTaskList.size) {
       throw RuntimeException("出现坏环")
     }
@@ -160,7 +160,7 @@ class AppStartTaskDispatcher private constructor(
     return sortTaskList
   }
 
-  private fun finishAppStartTask(task: AppStartTask) {
+  private fun finishTask(task: AppStartTask) {
     // notify children
     taskChildListMap[task.taskKey]!!.forEach { childTaskKey ->
       taskMap[childTaskKey]!!.notifyNow()
@@ -188,7 +188,7 @@ class AppStartTaskDispatcher private constructor(
 
       var costTime = System.currentTimeMillis()
       appStartTask.run()
-      dispatcher.finishAppStartTask(appStartTask)
+      dispatcher.finishTask(appStartTask)
       costTime = System.currentTimeMillis() - costTime
 
       dispatcher.log("Finish Task[${appStartTask.taskKey.simpleName}], costTime: ${costTime}ms")
