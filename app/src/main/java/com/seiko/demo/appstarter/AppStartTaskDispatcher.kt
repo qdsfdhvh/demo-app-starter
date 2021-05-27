@@ -9,9 +9,6 @@ import androidx.annotation.MainThread
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
-import kotlin.collections.ArrayList
-import kotlin.collections.HashMap
 import kotlin.collections.set
 import kotlin.reflect.KClass
 
@@ -19,50 +16,59 @@ private const val WAITING_TIME = 10000L
 
 private typealias TaskKey = KClass<out TaskInterface>
 
-class AppStartTaskDispatcher {
+class AppStartTaskDispatcher private constructor(
+  private val startTaskList: List<AppStartTask>,
+  private val allTaskWaitTimeOut: Long,
+  private val isShowLog: Boolean,
+  needWaitCount: Int
+) {
 
-  private val startTaskList = ArrayList<AppStartTask>()
+  class Builder {
+    private val startTaskList = ArrayList<AppStartTask>()
+    private var allTaskWaitTimeOut = WAITING_TIME
+    private var isShowLog = false
+    private var needWaitCount = 0
+
+    fun setShowLog(showLog: Boolean) = apply {
+      isShowLog = showLog
+    }
+
+    fun setAllTaskWaitTimeOut(
+      @IntRange(from = 50, to = Long.MAX_VALUE) timeOut: Long
+    ) = apply {
+      allTaskWaitTimeOut = timeOut
+    }
+
+    fun addAppStartTask(task: TaskInterface) = apply {
+      startTaskList.add(AppStartTask(task))
+      if (task.ifNeedWait()) {
+        needWaitCount++
+      }
+    }
+
+    fun addAppStartTasks(tasks: Collection<TaskInterface>) = apply {
+      tasks.forEach(::addAppStartTask)
+    }
+
+    fun build() = AppStartTaskDispatcher(
+      startTaskList = startTaskList,
+      allTaskWaitTimeOut = allTaskWaitTimeOut,
+      isShowLog = isShowLog,
+      needWaitCount = needWaitCount
+    )
+  }
+
   private val taskHashMap = HashMap<TaskKey, AppStartTask>()
   private val taskChildHashMap = HashMap<TaskKey, MutableList<TaskKey>>()
 
-  private lateinit var countDownLatch: CountDownLatch
-
-  private val needWaitCount = AtomicInteger()
-  private var allTaskWaitTimeOut = WAITING_TIME
-
-  private var isShowLog = false
-  private var startTime = 0L
-
-  fun setShowLog(showLog: Boolean) = apply {
-    isShowLog = showLog
-  }
-
-  fun setAllTaskWaitTimeOut(
-    @IntRange(from = 50, to = Long.MAX_VALUE) timeOut: Long
-  ) = apply {
-    allTaskWaitTimeOut = timeOut
-  }
-
-  fun addAppStartTask(task: TaskInterface) = apply {
-    startTaskList.add(AppStartTask(task))
-    if (task.ifNeedWait()) {
-      needWaitCount.getAndIncrement()
-    }
-  }
-
-  fun addAppStartTasks(tasks: Collection<TaskInterface>) = apply {
-    tasks.forEach(::addAppStartTask)
-  }
+  private val countDownLatch = CountDownLatch(needWaitCount)
 
   @MainThread
-  fun start() = apply {
-    startTime = System.currentTimeMillis()
-    countDownLatch = CountDownLatch(needWaitCount.get())
-    dispatchAppStartTask(getSortResult())
-  }
+  fun start() {
+    val startTime = System.currentTimeMillis()
 
-  fun await() {
-    check(this::countDownLatch.isInitialized) { "must run start() before await()" }
+    // 启动Task
+    dispatchAppStartTask(getSortResult())
 
     // 阻塞等待
     try {
@@ -155,7 +161,6 @@ class AppStartTaskDispatcher {
     // needWait -1
     if (task.ifNeedWait()) {
       countDownLatch.countDown()
-      needWaitCount.getAndDecrement()
     }
   }
 

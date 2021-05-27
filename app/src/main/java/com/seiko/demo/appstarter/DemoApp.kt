@@ -5,11 +5,11 @@ import android.app.Application
 class DemoApp : Application() {
   override fun onCreate() {
     super.onCreate()
-    AppStartTaskDispatcher()
+    AppStartTaskDispatcher.Builder()
       .setShowLog(true)
       .setAllTaskWaitTimeOut(5000)
       .addAppStartTasks(START_TASKS)
+      .build()
       .start()
-      .await()
   }
 }
