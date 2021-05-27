@@ -6,7 +6,6 @@ import android.os.Process.THREAD_PRIORITY_LOWEST
 import android.util.Log
 import androidx.annotation.IntRange
 import androidx.annotation.MainThread
-import java.util.*
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
@@ -110,7 +109,7 @@ class AppStartTaskDispatcher {
         taskChildHashMap[task.taskKey] = ArrayList()
         // 添加深度为0的Task
         if (taskDepthHashMap[task.taskKey] == 0) {
-          deque.offer(task.taskKey)
+          deque.addLast(task.taskKey)
         }
       } else {
         throw RuntimeException("任务重复了: " + task.taskKey)
@@ -129,12 +128,12 @@ class AppStartTaskDispatcher {
     // 按深度逐个添加进排序后的TaskList
     val sortTaskList = ArrayList<AppStartTask>(startTaskList.size)
     while (!deque.isEmpty()) {
-      val dependsKClass = deque.poll()!!
+      val dependsKClass = deque.removeFirst()
       sortTaskList.add(taskHashMap[dependsKClass]!!)
       for (classChild in taskChildHashMap[dependsKClass]!!) {
         taskDepthHashMap[classChild] = taskDepthHashMap[classChild]!! - 1
         if (taskDepthHashMap[classChild]!! == 0) {
-          deque.offer(classChild)
+          deque.addLast(classChild)
         }
       }
     }
