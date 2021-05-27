@@ -115,7 +115,7 @@ class AppStartTaskDispatcher private constructor(
 
       val dependsSize = task.dependsSize
       if (dependsSize == 0) {
-        // 深度为0的Task注入当如队列
+        // 深度为0的Task直接放入队列
         deque.addLast(task.taskKey)
       }
 
@@ -138,8 +138,8 @@ class AppStartTaskDispatcher private constructor(
       val taskKey = deque.removeFirst()
       sortTaskList.add(taskMap[taskKey]!!)
 
-      val childTaskList = taskChildListMap[taskKey]
-      if (childTaskList.isNullOrEmpty()) continue
+      val childTaskList = taskChildListMap[taskKey]!!
+      if (childTaskList.isEmpty()) continue
 
       // 添加完成后对其每个子Task的深度-1
       for (childTaskKey in childTaskList) {
@@ -214,7 +214,7 @@ class AppStartTaskDispatcher private constructor(
 interface TaskInterface : Runnable {
 
   @IntRange(from = THREAD_PRIORITY_FOREGROUND.toLong(), to = THREAD_PRIORITY_LOWEST.toLong())
-  fun priority(): Int = Process.THREAD_PRIORITY_BACKGROUND
+  fun priority(): Int = Process.THREAD_PRIORITY_DEFAULT
 
   fun getDependsTaskList(): List<KClass<out TaskInterface>> = emptyList() // List<TaskKey>
 
